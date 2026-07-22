@@ -33,7 +33,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, status, score FROM jobs WHERE hash = $1 LIMIT 1;",
+        "query": "SELECT j.id, j.status, j.score, r.file_path as resume_markdown, a.cover_letter FROM jobs j LEFT JOIN resumes r ON r.score = j.score LEFT JOIN applications a ON a.job_id = j.id WHERE j.hash = $1 LIMIT 1;",
         "additionalFields": {
           "queryParams": "={{ [ $json.jobHash ] }}"
         }
@@ -72,6 +72,42 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "and": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "in",
+              "value2": "READY,APPLIED"
+            }
+          ]
+        }
+      },
+      "id": "node-if-cached-valid",
+      "name": "IF Cache Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"apply\": true,\n  \"score\": {{ $json.score }},\n  \"resumeMarkdown\": \"{{ $json.resume_markdown || '' }}\",\n  \"resumeHtml\": \"\",\n  \"resumePdf\": \"\",\n  \"coverLetter\": \"{{ $json.cover_letter || '' }}\",\n  \"answers\": {\n    \"about\": \"Loaded from Cache\",\n    \"why\": \"Loaded from Cache\",\n    \"salary\": \"Negotiable\"\n  },\n  \"highlightSkills\": [],\n  \"missingSkills\": [],\n  \"reason\": \"loaded_from_cache\"\n}",
+        "options": {}
+      },
+      "id": "node-resp-cache",
+      "name": "Response Cache",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        900,
+        100
+      ]
+    },
+    {
+      "parameters": {
         "respondWith": "json",
         "responseBody": "{\n  \"apply\": false,\n  \"reason\": \"duplicate\",\n  \"score\": 0\n}",
         "options": {}
@@ -81,8 +117,8 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        700,
-        200
+        900,
+        250
       ]
     },
     {
@@ -420,7 +456,7 @@
     },
     {
       "parameters": {},
-      "id": "node-error-trigger",
+      "id": "enterprise-error-trigger",
       "name": "Global Error Trigger",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
@@ -437,7 +473,7 @@
           "queryParams": "={{ [ $json.execution.error.message, JSON.stringify($json.execution) ] }}"
         }
       },
-      "id": "node-save-error",
+      "id": "enterprise-save-error",
       "name": "Save Error Log DB",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
@@ -486,6 +522,24 @@
         [
           {
             "node": "Read Configuration Settings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Cache Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Cache Valid": {
+      "main": [
+        [
+          {
+            "node": "Response Cache",
             "type": "main",
             "index": 0
           }

@@ -264,19 +264,7 @@
       "retryOnFail": true,
       "maxRetries": 3
     },
-    {
-      "parameters": {
-        "fileContent": "={{ $json.file_path }}"
-      },
-      "id": "node-read-markdown-file",
-      "name": "Read Markdown File Content",
-      "type": "n8n-nodes-base.readWriteFile",
-      "typeVersion": 1,
-      "position": [
-        2100,
-        400
-      ]
-    },
+
     {
       "parameters": {
         "jsCode": "const text = $('Webhook Reception').item.json.body.description.toLowerCase();\nconst synonyms = {\n  'javascript': ['js', 'javascript', 'reactjs', 'node', 'nodejs', 'react'],\n  'python': ['python', 'fastapi', 'django', 'flask'],\n  'java': ['java', 'spring', 'spring boot'],\n  'aws': ['aws', 'amazon web services', 'ec2', 's3'],\n  'docker': ['docker', 'kubernetes', 'k8s']\n};\n\nconst found = [];\nfor (const [key, list] of Object.entries(synonyms)) {\n  for (const syn of list) {\n    if (text.includes(syn)) {\n      found.push(key.toUpperCase());\n      break;\n    }\n  }\n}\n\nitems[0].json.skillsExtracted = found;\nreturn items;"
@@ -292,7 +280,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const job = $('Webhook Reception').item.json.body;\nconst cv = $('Read Markdown File Content').item.json.fileContent || 'Master resume markdown content';\nconst settings = $('Read Configuration Settings').item.json;\nconst skills = $json.skillsExtracted || [];\n\nitems[0].json.dynamicPrompt = `You are a technical ATS screener.\nAnalyze the following job description:\nTitle: ${job.title}\nCompany: ${job.company}\nDescription: ${job.description}\n\nCandidate Master CV:\n${cv}\n\nIdentified Tech Skills: ${skills.join(', ')}\nTarget score: ${settings.score_min}\n\nReturn JSON.`;\nreturn items;"
+        "jsCode": "const job = $('Webhook Reception').item.json.body;\nconst cv = $('Load Resume Markdown Content').item.json.file_path || 'Master resume markdown content';\nconst settings = $('Read Configuration Settings').item.json;\nconst skills = $json.skillsExtracted || [];\n\nitems[0].json.dynamicPrompt = `You are a technical ATS screener.\nAnalyze the following job description:\nTitle: ${job.title}\nCompany: ${job.company}\nDescription: ${job.description}\n\nCandidate Master CV:\n${cv}\n\nIdentified Tech Skills: ${skills.join(', ')}\nTarget score: ${settings.score_min}\n\nReturn JSON.`;\nreturn items;"
       },
       "id": "node-prompt-builder",
       "name": "Prompt Builder",
@@ -623,17 +611,6 @@
       ]
     },
     "Load Resume Markdown Content": {
-      "main": [
-        [
-          {
-            "node": "Read Markdown File Content",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Read Markdown File Content": {
       "main": [
         [
           {

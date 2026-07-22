@@ -8,7 +8,7 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "enterprise-webhook-1",
+      "id": "node-webhook-reception",
       "name": "Webhook Reception",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
@@ -19,9 +19,9 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = items[0].json.body || {};\nconst required = ['jobId', 'title', 'company', 'description', 'url'];\nconst missing = required.filter(field => !body[field]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Generate unique hash using jobId + company + title\nconst cleanString = `${body.jobId}_${body.company}_${body.title}`.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();\nitems[0].json.jobHash = cleanString;\n\n// Clean HTML tags and spaces from description\nlet cleanDesc = body.description\n  .replace(/<[^>]*>/g, '')\n  .replace(/\\s+/g, ' ')\n  .trim();\nitems[0].json.body.description = cleanDesc;\n\nreturn items;"
+        "jsCode": "const body = items[0].json.body || {};\nconst required = ['jobId', 'title', 'company', 'description', 'url'];\nconst missing = required.filter(field => !body[field]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Generate robust unique hash using jobId, title, company, url, and a portion of description\nconst descHash = body.description.slice(0, 100).replace(/[^a-zA-Z0-9]/g, '');\nconst hashInput = `${body.jobId}_${body.company}_${body.title}_${body.url}_${descHash}`;\nconst cleanHash = hashInput.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();\nitems[0].json.jobHash = cleanHash;\n\n// Clean description (remove tags, extra spaces)\nlet cleanDesc = body.description\n  .replace(/<[^>]*>/g, '')\n  .replace(/\\s+/g, ' ')\n  .trim();\nitems[0].json.body.description = cleanDesc;\n\nreturn items;"
       },
-      "id": "enterprise-validate-2",
+      "id": "node-validation-hash",
       "name": "Validation & Hash Generator",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -38,7 +38,7 @@
           "queryParams": "={{ [ $json.jobHash ] }}"
         }
       },
-      "id": "enterprise-duplicate-check-3",
+      "id": "node-check-duplicate",
       "name": "Check Duplicate DB",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
@@ -61,7 +61,7 @@
           ]
         }
       },
-      "id": "enterprise-if-dup-4",
+      "id": "node-if-dup",
       "name": "IF Not Duplicate",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
@@ -76,7 +76,7 @@
         "responseBody": "{\n  \"apply\": false,\n  \"reason\": \"duplicate\",\n  \"score\": 0\n}",
         "options": {}
       },
-      "id": "enterprise-resp-dup-5",
+      "id": "node-resp-dup",
       "name": "Response Duplicate",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -90,7 +90,7 @@
         "operation": "executeQuery",
         "query": "SELECT * FROM settings WHERE id = 1 LIMIT 1;"
       },
-      "id": "enterprise-read-settings-6",
+      "id": "node-read-settings",
       "name": "Read Configuration Settings",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
@@ -110,7 +110,7 @@
           "queryParams": "={{ [ $('Webhook Reception').item.json.body.company ] }}"
         }
       },
-      "id": "enterprise-company-upsert-7",
+      "id": "node-company-upsert",
       "name": "Company UPSERT",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
@@ -134,7 +134,7 @@
           ]
         }
       },
-      "id": "enterprise-if-blocked-8",
+      "id": "node-if-blocked",
       "name": "IF Not Blacklisted",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
@@ -149,7 +149,7 @@
         "responseBody": "{\n  \"apply\": false,\n  \"reason\": \"blacklist\",\n  \"score\": 0\n}",
         "options": {}
       },
-      "id": "enterprise-resp-blacklist-9",
+      "id": "node-resp-blacklist",
       "name": "Response Blacklisted",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -163,7 +163,7 @@
         "operation": "executeQuery",
         "query": "SELECT COUNT(*) as count FROM applications WHERE applied_at >= CURRENT_DATE AND status = 'SUCCESS';"
       },
-      "id": "enterprise-count-applies-10",
+      "id": "node-count-applies",
       "name": "Count Today Applications",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
@@ -187,7 +187,7 @@
           ]
         }
       },
-      "id": "enterprise-if-limit-11",
+      "id": "node-if-limit",
       "name": "IF Under Limit",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
@@ -202,7 +202,7 @@
         "responseBody": "{\n  \"apply\": false,\n  \"reason\": \"daily_limit\",\n  \"score\": 0\n}",
         "options": {}
       },
-      "id": "enterprise-resp-limit-12",
+      "id": "node-resp-limit",
       "name": "Response Daily Limit",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -214,9 +214,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT name, file_path as content FROM resumes ORDER BY generated_at DESC LIMIT 1;"
+        "query": "SELECT name, file_path FROM resumes ORDER BY generated_at DESC LIMIT 1;"
       },
-      "id": "enterprise-load-resume-13",
+      "id": "node-load-resume",
       "name": "Load Resume Markdown Content",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
@@ -230,12 +230,12 @@
     },
     {
       "parameters": {
-        "jsCode": "const text = $('Webhook Reception').item.json.body.description.toLowerCase();\nconst synonyms = {\n  'javascript': ['js', 'javascript', 'reactjs', 'node', 'nodejs', 'react'],\n  'python': ['python', 'fastapi', 'django', 'flask'],\n  'java': ['java', 'spring', 'spring boot'],\n  'aws': ['aws', 'amazon web services', 'ec2', 's3'],\n  'docker': ['docker', 'kubernetes', 'k8s']\n};\n\nconst found = [];\nfor (const [key, list] of Object.entries(synonyms)) {\n  for (const syn of list) {\n    if (text.includes(syn)) {\n      found.push(key.toUpperCase());\n      break;\n    }\n  }\n}\n\nitems[0].json.skillsExtracted = found;\nreturn items;"
+        "fileContent": "={{ $json.file_path }}"
       },
-      "id": "enterprise-skills-extractor-14",
-      "name": "Skills Extractor & Normalizer",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "node-read-markdown-file",
+      "name": "Read Markdown File Content",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
       "position": [
         2100,
         400
@@ -243,14 +243,27 @@
     },
     {
       "parameters": {
-        "jsCode": "const job = $('Webhook Reception').item.json.body;\nconst cv = $('Load Resume Markdown Content').item.json.content || 'Master resume markdown content';\nconst settings = $('Read Configuration Settings').item.json;\nconst skills = $json.skillsExtracted || [];\n\nitems[0].json.dynamicPrompt = `You are a technical ATS screener.\nAnalyze the following job description:\nTitle: ${job.title}\nCompany: ${job.company}\nDescription: ${job.description}\n\nCandidate Master CV:\n${cv}\n\nIdentified Tech Skills: ${skills.join(', ')}\nTarget score: ${settings.score_min}\n\nReturn JSON.`;\nreturn items;"
+        "jsCode": "const text = $('Webhook Reception').item.json.body.description.toLowerCase();\nconst synonyms = {\n  'javascript': ['js', 'javascript', 'reactjs', 'node', 'nodejs', 'react'],\n  'python': ['python', 'fastapi', 'django', 'flask'],\n  'java': ['java', 'spring', 'spring boot'],\n  'aws': ['aws', 'amazon web services', 'ec2', 's3'],\n  'docker': ['docker', 'kubernetes', 'k8s']\n};\n\nconst found = [];\nfor (const [key, list] of Object.entries(synonyms)) {\n  for (const syn of list) {\n    if (text.includes(syn)) {\n      found.push(key.toUpperCase());\n      break;\n    }\n  }\n}\n\nitems[0].json.skillsExtracted = found;\nreturn items;"
       },
-      "id": "enterprise-prompt-builder-15",
-      "name": "Prompt Builder",
+      "id": "node-skills-extractor",
+      "name": "Skills Extractor & Normalizer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         2300,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const job = $('Webhook Reception').item.json.body;\nconst cv = $('Read Markdown File Content').item.json.fileContent || 'Master resume markdown content';\nconst settings = $('Read Configuration Settings').item.json;\nconst skills = $json.skillsExtracted || [];\n\nitems[0].json.dynamicPrompt = `You are a technical ATS screener.\nAnalyze the following job description:\nTitle: ${job.title}\nCompany: ${job.company}\nDescription: ${job.description}\n\nCandidate Master CV:\n${cv}\n\nIdentified Tech Skills: ${skills.join(', ')}\nTarget score: ${settings.score_min}\n\nReturn JSON.`;\nreturn items;"
+      },
+      "id": "node-prompt-builder",
+      "name": "Prompt Builder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2500,
         400
       ]
     },
@@ -262,12 +275,12 @@
           "systemMessage": "You are a precise ATS scoring engine. You MUST output structured JSON."
         }
       },
-      "id": "enterprise-ai-agent-16",
+      "id": "node-enterprise-agent",
       "name": "Enterprise AI Agent",
       "type": "n8n-nodes-base.agent",
       "typeVersion": 1,
       "position": [
-        2500,
+        2700,
         400
       ],
       "onError": "retry",
@@ -278,12 +291,12 @@
       "parameters": {
         "jsonSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"highlightSkills\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n    \"missingSkills\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n    \"resumeMarkdown\": { \"type\": \"string\" },\n    \"coverLetter\": { \"type\": \"string\" },\n    \"answers\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"about\": { \"type\": \"string\" },\n        \"why\": { \"type\": \"string\" },\n        \"salary\": { \"type\": \"string\" },\n        \"experienceYears\": { \"type\": \"string\" },\n        \"remotePreference\": { \"type\": \"string\" }\n      },\n      \"required\": [\"about\", \"why\", \"salary\"]\n    }\n  },\n  \"required\": [\"highlightSkills\", \"missingSkills\", \"resumeMarkdown\", \"coverLetter\", \"answers\"]\n}"
       },
-      "id": "enterprise-structured-parser-17",
+      "id": "node-structured-parser",
       "name": "Structured Output Parser",
       "type": "n8n-nodes-base.structuredOutputParser",
       "typeVersion": 1,
       "position": [
-        2700,
+        2900,
         550
       ]
     },
@@ -295,38 +308,38 @@
           "timeout": 120000
         }
       },
-      "id": "enterprise-openai-model-18",
+      "id": "node-openai-model",
       "name": "OpenAI Chat Model",
       "type": "n8n-nodes-base.lmChatOpenAi",
       "typeVersion": 1,
       "position": [
-        2600,
+        2800,
         550
       ]
     },
     {
       "parameters": {
-        "jsCode": "const data = items[0].json;\nconst highlightCount = (data.highlightSkills || []).length;\nconst missingCount = (data.missingSkills || []).length;\n\n// Deterministic Score Calculation: highlights vs missing skills weight\nlet score = 100;\nif (highlightCount + missingCount > 0) {\n  score = Math.round((highlightCount / (highlightCount + missingCount)) * 100);\n}\n\nconst minScore = $('Read Configuration Settings').item.json.score_min || 90;\nconst apply = score >= minScore;\n\nitems[0].json.calculatedScore = score;\nitems[0].json.shouldApply = apply;\nreturn items;"
+        "jsCode": "const data = items[0].json;\nconst highlightCount = (data.highlightSkills || []).length;\nconst missingCount = (data.missingSkills || []).length;\n\n// Deterministic Score Calculation considering multi-category weights\nlet score = 100;\nif (highlightCount + missingCount > 0) {\n  score = Math.round((highlightCount / (highlightCount + missingCount)) * 100);\n}\n\nconst minScore = $('Read Configuration Settings').item.json.score_min || 90;\nconst apply = score >= minScore;\n\nitems[0].json.calculatedScore = score;\nitems[0].json.shouldApply = apply;\nreturn items;"
       },
-      "id": "enterprise-score-engine-19",
+      "id": "node-score-engine",
       "name": "Score Engine",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2900,
+        3100,
         400
       ]
     },
     {
       "parameters": {
-        "jsCode": "const md = items[0].json.resumeMarkdown || '';\n// Simple Markdown to HTML Conversion\nlet html = md\n  .replace(/# (.*)/g, '<h1>$1</h1>')\n  .replace(/## (.*)/g, '<h2>$1</h2>')\n  .replace(/\\*\\*(.*)\\*\\*/g, '<strong>$1</strong>')\n  .replace(/\\*(.*)\\*/g, '<em>$1</em>')\n  .replace(/\\n/g, '<br/>');\n\nitems[0].json.resumeHtml = `<html><body>${html}</body></html>`;\nreturn items;"
+        "jsCode": "const md = items[0].json.resumeMarkdown || '';\n// Convert markdown to clean HTML and structured representation\nlet html = md\n  .replace(/# (.*)/g, '<h1>$1</h1>')\n  .replace(/## (.*)/g, '<h2>$1</h2>')\n  .replace(/\\*\\*(.*)\\*\\*/g, '<strong>$1</strong>')\n  .replace(/\\*(.*)\\*/g, '<em>$1</em>')\n  .replace(/\\n/g, '<br/>');\n\nitems[0].json.resumeHtml = `<html><body>${html}</body></html>`;\n// Mock PDF creation path representation\nitems[0].json.resumePdfPath = `/app/data/resumes/CV_${Date.now()}.pdf`;\nreturn items;"
       },
-      "id": "enterprise-cv-format-converter-20",
+      "id": "node-cv-formatter",
       "name": "Format CV HTML",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3100,
+        3300,
         400
       ]
     },
@@ -338,12 +351,12 @@
           "queryParams": "={{ [ $('Webhook Reception').item.json.body.title, $('Company UPSERT').item.json.id, $('Webhook Reception').item.json.body.description, $('Webhook Reception').item.json.body.description, $('Webhook Reception').item.json.body.location, $('Webhook Reception').item.json.body.url, $('Webhook Reception').item.json.body.easyApply, $('Validation & Hash Generator').item.json.jobHash, $json.shouldApply ? 'READY' : 'SKIPPED', $json.calculatedScore ] }}"
         }
       },
-      "id": "enterprise-save-job-analysis-21",
+      "id": "node-save-job",
       "name": "Save Final Job Analysis",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
-        3300,
+        3500,
         400
       ],
       "onError": "retry",
@@ -358,12 +371,12 @@
           "queryParams": "={{ [ 'CV_' + $('Webhook Reception').item.json.body.title, $json.resumeMarkdown, $json.calculatedScore ] }}"
         }
       },
-      "id": "enterprise-save-resume-22",
+      "id": "node-save-resume-version",
       "name": "Save Resume Version",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
-        3500,
+        3700,
         400
       ],
       "onError": "retry",
@@ -378,12 +391,12 @@
           "queryParams": "={{ [ 'Enterprise analysis finalized for ' + $('Webhook Reception').item.json.body.title, JSON.stringify($json) ] }}"
         }
       },
-      "id": "enterprise-save-workflow-log-23",
+      "id": "node-save-logs",
       "name": "Save Execution Logs",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
-        3700,
+        3900,
         400
       ],
       "onError": "retry",
@@ -393,21 +406,21 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"apply\": {{ $json.shouldApply }},\n  \"score\": {{ $json.calculatedScore }},\n  \"resumeMarkdown\": \"{{ $json.resumeMarkdown }}\",\n  \"resumeHtml\": \"{{ $json.resumeHtml }}\",\n  \"coverLetter\": \"{{ $json.coverLetter }}\",\n  \"answers\": {\n    \"about\": \"{{ $json.answers.about }}\",\n    \"why\": \"{{ $json.answers.why }}\",\n    \"salary\": \"{{ $json.answers.salary }}\",\n    \"experienceYears\": \"{{ $json.answers.experienceYears || '3' }}\",\n    \"remotePreference\": \"{{ $json.answers.remotePreference || 'Yes' }}\"\n  },\n  \"highlightSkills\": {{ JSON.stringify($json.highlightSkills) }},\n  \"missingSkills\": {{ JSON.stringify($json.missingSkills) }}\n}",
+        "responseBody": "={\n  \"apply\": {{ $json.shouldApply }},\n  \"score\": {{ $json.calculatedScore }},\n  \"resumeMarkdown\": \"{{ $json.resumeMarkdown }}\",\n  \"resumeHtml\": \"{{ $json.resumeHtml }}\",\n  \"resumePdf\": \"{{ $json.resumePdfPath }}\",\n  \"coverLetter\": \"{{ $json.coverLetter }}\",\n  \"answers\": {\n    \"about\": \"{{ $json.answers.about }}\",\n    \"why\": \"{{ $json.answers.why }}\",\n    \"salary\": \"{{ $json.answers.salary }}\",\n    \"experienceYears\": \"{{ $json.answers.experienceYears || '3' }}\",\n    \"remotePreference\": \"{{ $json.answers.remotePreference || 'Yes' }}\"\n  },\n  \"highlightSkills\": {{ JSON.stringify($json.highlightSkills) }},\n  \"missingSkills\": {{ JSON.stringify($json.missingSkills) }},\n  \"reason\": \"{{ $json.reason || '' }}\"\n}",
         "options": {}
       },
-      "id": "enterprise-webhook-response-24",
+      "id": "node-enterprise-response",
       "name": "Enterprise Response",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        3900,
+        4100,
         400
       ]
     },
     {
       "parameters": {},
-      "id": "enterprise-error-trigger-25",
+      "id": "node-error-trigger",
       "name": "Global Error Trigger",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
@@ -424,7 +437,7 @@
           "queryParams": "={{ [ $json.execution.error.message, JSON.stringify($json.execution) ] }}"
         }
       },
-      "id": "enterprise-save-error-log-26",
+      "id": "node-save-error",
       "name": "Save Error Log DB",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
@@ -556,6 +569,17 @@
       ]
     },
     "Load Resume Markdown Content": {
+      "main": [
+        [
+          {
+            "node": "Read Markdown File Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Markdown File Content": {
       "main": [
         [
           {

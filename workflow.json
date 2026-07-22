@@ -277,7 +277,7 @@
       },
       "id": "node-enterprise-agent",
       "name": "Enterprise AI Agent",
-      "type": "n8n-nodes-base.agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1,
       "position": [
         2700,
@@ -293,7 +293,7 @@
       },
       "id": "node-structured-parser",
       "name": "Structured Output Parser",
-      "type": "n8n-nodes-base.structuredOutputParser",
+      "type": "@n8n/n8n-nodes-langchain.structuredOutputParser",
       "typeVersion": 1,
       "position": [
         2900,
@@ -310,7 +310,7 @@
       },
       "id": "node-openai-model",
       "name": "OpenAI Chat Model",
-      "type": "n8n-nodes-base.lmChatOpenAi",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1,
       "position": [
         2800,

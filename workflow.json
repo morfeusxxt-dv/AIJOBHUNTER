@@ -1,5 +1,5 @@
 {
-  "name": "AI Job Hunter Enterprise Workflow",
+  "name": "AI Job Hunter Enterprise Production Workflow",
   "nodes": [
     {
       "parameters": {
@@ -8,43 +8,43 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "node-webhook-1",
+      "id": "enterprise-webhook-1",
       "name": "Webhook Reception",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [
         100,
-        500
+        400
       ]
     },
     {
       "parameters": {
-        "jsCode": "const body = items[0].json.body || {};\nconst required = ['jobId', 'title', 'company', 'description', 'url'];\nconst missing = required.filter(field => !body[field]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Clean Job Description (Remove HTML tags, duplicate spaces, and escape chars)\nlet cleanDesc = body.description\n  .replace(/<[^>]*>/g, '')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nitems[0].json.body.description = cleanDesc;\nreturn items;"
+        "jsCode": "const body = items[0].json.body || {};\nconst required = ['jobId', 'title', 'company', 'description', 'url'];\nconst missing = required.filter(field => !body[field]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Generate unique hash using jobId + company + title\nconst cleanString = `${body.jobId}_${body.company}_${body.title}`.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();\nitems[0].json.jobHash = cleanString;\n\n// Clean HTML tags and spaces from description\nlet cleanDesc = body.description\n  .replace(/<[^>]*>/g, '')\n  .replace(/\\s+/g, ' ')\n  .trim();\nitems[0].json.body.description = cleanDesc;\n\nreturn items;"
       },
-      "id": "node-clean-desc-2",
-      "name": "Clean Description & Validate",
+      "id": "enterprise-validate-2",
+      "name": "Validation & Hash Generator",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         300,
-        500
+        400
       ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, status, score FROM jobs WHERE hash = $1 OR url = $2 LIMIT 1;",
+        "query": "SELECT id, status, score FROM jobs WHERE hash = $1 LIMIT 1;",
         "additionalFields": {
-          "queryParams": "={{ [ $json.body.jobId, $json.body.url ] }}"
+          "queryParams": "={{ [ $json.jobHash ] }}"
         }
       },
-      "id": "node-db-dup-3",
+      "id": "enterprise-duplicate-check-3",
       "name": "Check Duplicate DB",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
         500,
-        500
+        400
       ],
       "onError": "retry",
       "retryOnFail": true,
@@ -61,13 +61,13 @@
           ]
         }
       },
-      "id": "node-if-dup-4",
+      "id": "enterprise-if-dup-4",
       "name": "IF Not Duplicate",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
       "position": [
         700,
-        500
+        400
       ]
     },
     {
@@ -76,13 +76,13 @@
         "responseBody": "{\n  \"apply\": false,\n  \"reason\": \"duplicate\",\n  \"score\": 0\n}",
         "options": {}
       },
-      "id": "node-resp-dup-5",
+      "id": "enterprise-resp-dup-5",
       "name": "Response Duplicate",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
         700,
-        300
+        200
       ]
     },
     {
@@ -90,13 +90,13 @@
         "operation": "executeQuery",
         "query": "SELECT * FROM settings WHERE id = 1 LIMIT 1;"
       },
-      "id": "node-read-settings-6",
-      "name": "Read Configuration",
+      "id": "enterprise-read-settings-6",
+      "name": "Read Configuration Settings",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
         900,
-        500
+        400
       ],
       "onError": "retry",
       "retryOnFail": true,
@@ -105,71 +105,18 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT COUNT(*) as count FROM applications WHERE applied_at >= CURRENT_DATE AND status = 'SUCCESS';"
-      },
-      "id": "node-count-applies-7",
-      "name": "Count Today Applications",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 1,
-      "position": [
-        1100,
-        500
-      ],
-      "onError": "retry",
-      "retryOnFail": true,
-      "maxRetries": 3
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "and": [
-            {
-              "value1": "={{ $json.count }}",
-              "value2": "={{ $('Read Configuration').item.json.daily_max }}",
-              "operation": "smaller"
-            }
-          ]
-        }
-      },
-      "id": "node-if-limit-8",
-      "name": "IF Under Limit",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [
-        1300,
-        500
-      ]
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "{\n  \"apply\": false,\n  \"reason\": \"daily_limit\",\n  \"score\": 0\n}",
-        "options": {}
-      },
-      "id": "node-resp-limit-9",
-      "name": "Response Daily Limit",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1,
-      "position": [
-        1300,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT blocked FROM companies WHERE name = $1 LIMIT 1;",
+        "query": "INSERT INTO companies (name, blocked, whitelist, created_at) VALUES ($1, false, false, NOW()) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id, blocked;",
         "additionalFields": {
           "queryParams": "={{ [ $('Webhook Reception').item.json.body.company ] }}"
         }
       },
-      "id": "node-check-blacklist-10",
-      "name": "Check Blacklist",
+      "id": "enterprise-company-upsert-7",
+      "name": "Company UPSERT",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
-        1500,
-        500
+        1100,
+        400
       ],
       "onError": "retry",
       "retryOnFail": true,
@@ -187,13 +134,13 @@
           ]
         }
       },
-      "id": "node-if-blacklist-11",
+      "id": "enterprise-if-blocked-8",
       "name": "IF Not Blacklisted",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
       "position": [
-        1700,
-        500
+        1300,
+        400
       ]
     },
     {
@@ -202,27 +149,80 @@
         "responseBody": "{\n  \"apply\": false,\n  \"reason\": \"blacklist\",\n  \"score\": 0\n}",
         "options": {}
       },
-      "id": "node-resp-blacklist-12",
-      "name": "Response Blacklist",
+      "id": "enterprise-resp-blacklist-9",
+      "name": "Response Blacklisted",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        1700,
-        300
+        1300,
+        200
       ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, name, file_path, score, generated_at FROM resumes ORDER BY generated_at DESC LIMIT 1;"
+        "query": "SELECT COUNT(*) as count FROM applications WHERE applied_at >= CURRENT_DATE AND status = 'SUCCESS';"
       },
-      "id": "node-read-cv-content-13",
-      "name": "Read Master CV",
+      "id": "enterprise-count-applies-10",
+      "name": "Count Today Applications",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        400
+      ],
+      "onError": "retry",
+      "retryOnFail": true,
+      "maxRetries": 3
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "and": [
+            {
+              "value1": "={{ $json.count }}",
+              "value2": "={{ $('Read Configuration Settings').item.json.daily_max }}",
+              "operation": "smaller"
+            }
+          ]
+        }
+      },
+      "id": "enterprise-if-limit-11",
+      "name": "IF Under Limit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"apply\": false,\n  \"reason\": \"daily_limit\",\n  \"score\": 0\n}",
+        "options": {}
+      },
+      "id": "enterprise-resp-limit-12",
+      "name": "Response Daily Limit",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name, file_path as content FROM resumes ORDER BY generated_at DESC LIMIT 1;"
+      },
+      "id": "enterprise-load-resume-13",
+      "name": "Load Resume Markdown Content",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
         1900,
-        500
+        400
       ],
       "onError": "retry",
       "retryOnFail": true,
@@ -232,26 +232,26 @@
       "parameters": {
         "jsCode": "const text = $('Webhook Reception').item.json.body.description.toLowerCase();\nconst synonyms = {\n  'javascript': ['js', 'javascript', 'reactjs', 'node', 'nodejs', 'react'],\n  'python': ['python', 'fastapi', 'django', 'flask'],\n  'java': ['java', 'spring', 'spring boot'],\n  'aws': ['aws', 'amazon web services', 'ec2', 's3'],\n  'docker': ['docker', 'kubernetes', 'k8s']\n};\n\nconst found = [];\nfor (const [key, list] of Object.entries(synonyms)) {\n  for (const syn of list) {\n    if (text.includes(syn)) {\n      found.push(key.toUpperCase());\n      break;\n    }\n  }\n}\n\nitems[0].json.skillsExtracted = found;\nreturn items;"
       },
-      "id": "node-skills-extractor-14",
+      "id": "enterprise-skills-extractor-14",
       "name": "Skills Extractor & Normalizer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         2100,
-        500
+        400
       ]
     },
     {
       "parameters": {
-        "jsCode": "const job = $('Webhook Reception').item.json.body;\nconst cv = $('Read Master CV').item.json.file_path || 'No Master CV found';\nconst settings = $('Read Configuration').item.json;\nconst skills = $json.skillsExtracted || [];\n\nitems[0].json.dynamicPrompt = `You are a recruiting staff expert.\nAnalyze the following job description:\nTitle: ${job.title}\nCompany: ${job.company}\nDescription: ${job.description}\n\nCandidate Master CV:\n${cv}\n\nIdentified Tech Skills: ${skills.join(', ')}\nTarget score: ${settings.score_min}\n\nReturn analysis JSON.`;\nreturn items;"
+        "jsCode": "const job = $('Webhook Reception').item.json.body;\nconst cv = $('Load Resume Markdown Content').item.json.content || 'Master resume markdown content';\nconst settings = $('Read Configuration Settings').item.json;\nconst skills = $json.skillsExtracted || [];\n\nitems[0].json.dynamicPrompt = `You are a technical ATS screener.\nAnalyze the following job description:\nTitle: ${job.title}\nCompany: ${job.company}\nDescription: ${job.description}\n\nCandidate Master CV:\n${cv}\n\nIdentified Tech Skills: ${skills.join(', ')}\nTarget score: ${settings.score_min}\n\nReturn JSON.`;\nreturn items;"
       },
-      "id": "node-prompt-builder-15",
+      "id": "enterprise-prompt-builder-15",
       "name": "Prompt Builder",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         2300,
-        500
+        400
       ]
     },
     {
@@ -262,13 +262,13 @@
           "systemMessage": "You are a precise ATS scoring engine. You MUST output structured JSON."
         }
       },
-      "id": "node-ai-agent-16",
+      "id": "enterprise-ai-agent-16",
       "name": "Enterprise AI Agent",
       "type": "n8n-nodes-base.agent",
       "typeVersion": 1,
       "position": [
         2500,
-        500
+        400
       ],
       "onError": "retry",
       "retryOnFail": true,
@@ -278,13 +278,13 @@
       "parameters": {
         "jsonSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"highlightSkills\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n    \"missingSkills\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n    \"resumeMarkdown\": { \"type\": \"string\" },\n    \"coverLetter\": { \"type\": \"string\" },\n    \"answers\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"about\": { \"type\": \"string\" },\n        \"why\": { \"type\": \"string\" },\n        \"salary\": { \"type\": \"string\" },\n        \"experienceYears\": { \"type\": \"string\" },\n        \"remotePreference\": { \"type\": \"string\" }\n      },\n      \"required\": [\"about\", \"why\", \"salary\"]\n    }\n  },\n  \"required\": [\"highlightSkills\", \"missingSkills\", \"resumeMarkdown\", \"coverLetter\", \"answers\"]\n}"
       },
-      "id": "node-output-parser-17",
+      "id": "enterprise-structured-parser-17",
       "name": "Structured Output Parser",
       "type": "n8n-nodes-base.structuredOutputParser",
       "typeVersion": 1,
       "position": [
         2700,
-        650
+        550
       ]
     },
     {
@@ -295,56 +295,56 @@
           "timeout": 120000
         }
       },
-      "id": "node-llm-model-18",
+      "id": "enterprise-openai-model-18",
       "name": "OpenAI Chat Model",
       "type": "n8n-nodes-base.lmChatOpenAi",
       "typeVersion": 1,
       "position": [
         2600,
-        650
+        550
       ]
     },
     {
       "parameters": {
-        "jsCode": "const data = items[0].json;\nconst highlightCount = (data.highlightSkills || []).length;\nconst missingCount = (data.missingSkills || []).length;\n\n// Deterministic Score Calculation: highlights vs missing skills weight\nlet score = 100;\nif (highlightCount + missingCount > 0) {\n  score = Math.round((highlightCount / (highlightCount + missingCount)) * 100);\n}\n\nconst minScore = $('Read Configuration').item.json.score_min || 90;\nconst apply = score >= minScore;\n\nitems[0].json.calculatedScore = score;\nitems[0].json.shouldApply = apply;\nreturn items;"
+        "jsCode": "const data = items[0].json;\nconst highlightCount = (data.highlightSkills || []).length;\nconst missingCount = (data.missingSkills || []).length;\n\n// Deterministic Score Calculation: highlights vs missing skills weight\nlet score = 100;\nif (highlightCount + missingCount > 0) {\n  score = Math.round((highlightCount / (highlightCount + missingCount)) * 100);\n}\n\nconst minScore = $('Read Configuration Settings').item.json.score_min || 90;\nconst apply = score >= minScore;\n\nitems[0].json.calculatedScore = score;\nitems[0].json.shouldApply = apply;\nreturn items;"
       },
-      "id": "node-score-engine-19",
+      "id": "enterprise-score-engine-19",
       "name": "Score Engine",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         2900,
-        500
+        400
       ]
     },
     {
       "parameters": {
         "jsCode": "const md = items[0].json.resumeMarkdown || '';\n// Simple Markdown to HTML Conversion\nlet html = md\n  .replace(/# (.*)/g, '<h1>$1</h1>')\n  .replace(/## (.*)/g, '<h2>$1</h2>')\n  .replace(/\\*\\*(.*)\\*\\*/g, '<strong>$1</strong>')\n  .replace(/\\*(.*)\\*/g, '<em>$1</em>')\n  .replace(/\\n/g, '<br/>');\n\nitems[0].json.resumeHtml = `<html><body>${html}</body></html>`;\nreturn items;"
       },
-      "id": "node-cv-format-converter-20",
+      "id": "enterprise-cv-format-converter-20",
       "name": "Format CV HTML",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         3100,
-        500
+        400
       ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO jobs (title, company_id, description, requirements, location, url, easy_apply, hash, status, score, created_at) VALUES ($1, (SELECT id FROM companies WHERE name = $2 LIMIT 1), $3, $4, $5, $6, $7, $8, $9, $10, NOW()) RETURNING id;",
+        "query": "INSERT INTO jobs (title, company_id, description, requirements, location, url, easy_apply, hash, status, score, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()) RETURNING id;",
         "additionalFields": {
-          "queryParams": "={{ [ $('Webhook Reception').item.json.body.title, $('Webhook Reception').item.json.body.company, $('Webhook Reception').item.json.body.description, $('Webhook Reception').item.json.body.description, $('Webhook Reception').item.json.body.location, $('Webhook Reception').item.json.body.url, $('Webhook Reception').item.json.body.easyApply, $('Webhook Reception').item.json.body.jobId, $json.shouldApply ? 'READY' : 'SKIPPED', $json.calculatedScore ] }}"
+          "queryParams": "={{ [ $('Webhook Reception').item.json.body.title, $('Company UPSERT').item.json.id, $('Webhook Reception').item.json.body.description, $('Webhook Reception').item.json.body.description, $('Webhook Reception').item.json.body.location, $('Webhook Reception').item.json.body.url, $('Webhook Reception').item.json.body.easyApply, $('Validation & Hash Generator').item.json.jobHash, $json.shouldApply ? 'READY' : 'SKIPPED', $json.calculatedScore ] }}"
         }
       },
-      "id": "node-save-job-analysis-21",
+      "id": "enterprise-save-job-analysis-21",
       "name": "Save Final Job Analysis",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
         3300,
-        500
+        400
       ],
       "onError": "retry",
       "retryOnFail": true,
@@ -358,13 +358,13 @@
           "queryParams": "={{ [ 'CV_' + $('Webhook Reception').item.json.body.title, $json.resumeMarkdown, $json.calculatedScore ] }}"
         }
       },
-      "id": "node-save-resume-22",
+      "id": "enterprise-save-resume-22",
       "name": "Save Resume Version",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
         3500,
-        500
+        400
       ],
       "onError": "retry",
       "retryOnFail": true,
@@ -378,13 +378,13 @@
           "queryParams": "={{ [ 'Enterprise analysis finalized for ' + $('Webhook Reception').item.json.body.title, JSON.stringify($json) ] }}"
         }
       },
-      "id": "node-save-workflow-log-23",
+      "id": "enterprise-save-workflow-log-23",
       "name": "Save Execution Logs",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
         3700,
-        500
+        400
       ],
       "onError": "retry",
       "retryOnFail": true,
@@ -396,24 +396,24 @@
         "responseBody": "={\n  \"apply\": {{ $json.shouldApply }},\n  \"score\": {{ $json.calculatedScore }},\n  \"resumeMarkdown\": \"{{ $json.resumeMarkdown }}\",\n  \"resumeHtml\": \"{{ $json.resumeHtml }}\",\n  \"coverLetter\": \"{{ $json.coverLetter }}\",\n  \"answers\": {\n    \"about\": \"{{ $json.answers.about }}\",\n    \"why\": \"{{ $json.answers.why }}\",\n    \"salary\": \"{{ $json.answers.salary }}\",\n    \"experienceYears\": \"{{ $json.answers.experienceYears || '3' }}\",\n    \"remotePreference\": \"{{ $json.answers.remotePreference || 'Yes' }}\"\n  },\n  \"highlightSkills\": {{ JSON.stringify($json.highlightSkills) }},\n  \"missingSkills\": {{ JSON.stringify($json.missingSkills) }}\n}",
         "options": {}
       },
-      "id": "node-webhook-response-24",
+      "id": "enterprise-webhook-response-24",
       "name": "Enterprise Response",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
         3900,
-        500
+        400
       ]
     },
     {
       "parameters": {},
-      "id": "node-error-trigger-25",
+      "id": "enterprise-error-trigger-25",
       "name": "Global Error Trigger",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
       "position": [
         100,
-        800
+        700
       ]
     },
     {
@@ -424,13 +424,13 @@
           "queryParams": "={{ [ $json.execution.error.message, JSON.stringify($json.execution) ] }}"
         }
       },
-      "id": "node-save-error-log-26",
+      "id": "enterprise-save-error-log-26",
       "name": "Save Error Log DB",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
         300,
-        800
+        700
       ]
     }
   ],
@@ -439,14 +439,14 @@
       "main": [
         [
           {
-            "node": "Clean Description & Validate",
+            "node": "Validation & Hash Generator",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Clean Description & Validate": {
+    "Validation & Hash Generator": {
       "main": [
         [
           {
@@ -472,7 +472,7 @@
       "main": [
         [
           {
-            "node": "Read Configuration",
+            "node": "Read Configuration Settings",
             "type": "main",
             "index": 0
           }
@@ -486,13 +486,42 @@
         ]
       ]
     },
-    "Read Configuration": {
+    "Read Configuration Settings": {
+      "main": [
+        [
+          {
+            "node": "Company UPSERT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company UPSERT": {
+      "main": [
+        [
+          {
+            "node": "IF Not Blacklisted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Not Blacklisted": {
       "main": [
         [
           {
             "node": "Count Today Applications",
             "type": "main",
             "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response Blacklisted",
+            "type": "main",
+            "index": 1
           }
         ]
       ]
@@ -512,7 +541,7 @@
       "main": [
         [
           {
-            "node": "Check Blacklist",
+            "node": "Load Resume Markdown Content",
             "type": "main",
             "index": 0
           }
@@ -526,36 +555,7 @@
         ]
       ]
     },
-    "Check Blacklist": {
-      "main": [
-        [
-          {
-            "node": "IF Not Blacklisted",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "IF Not Blacklisted": {
-      "main": [
-        [
-          {
-            "node": "Read Master CV",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Response Blacklist",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "Read Master CV": {
+    "Load Resume Markdown Content": {
       "main": [
         [
           {

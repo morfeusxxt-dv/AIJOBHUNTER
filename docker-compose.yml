@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: job_hunter_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_job_hunter
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: always
+
+  backend:
+    build: ./backend
+    container_name: job_hunter_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ai_job_hunter
+      - SYNC_DATABASE_URL=postgresql://postgres:postgres@db:5432/ai_job_hunter
+      - ENCRYPTION_KEY=3kR8hJn29LmPqR4tV5wY6zB7eG8hK9jN2pQ5sT8wY1z=
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/job-analysis
+      - HEADLESS=true
+    volumes:
+      - backend_data:/app/data
+    depends_on:
+      - db
+    restart: always
+
+  frontend:
+    build: ./frontend
+    container_name: job_hunter_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: always
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: job_hunter_n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: always
+
+volumes:
+  pgdata:
+  backend_data:
+  n8n_data:

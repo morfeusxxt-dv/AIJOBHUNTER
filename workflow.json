@@ -293,7 +293,7 @@
       },
       "id": "node-structured-parser",
       "name": "Structured Output Parser",
-      "type": "@n8n/n8n-nodes-langchain.structuredOutputParser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1,
       "position": [
         2900,
@@ -494,7 +494,7 @@
           {
             "node": "Response Duplicate",
             "type": "main",
-            "index": 1
+            "index": 0
           }
         ]
       ]
@@ -534,7 +534,7 @@
           {
             "node": "Response Blacklisted",
             "type": "main",
-            "index": 1
+            "index": 0
           }
         ]
       ]
@@ -563,7 +563,7 @@
           {
             "node": "Response Daily Limit",
             "type": "main",
-            "index": 1
+            "index": 0
           }
         ]
       ]

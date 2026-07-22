@@ -275,14 +275,32 @@ class LinkedInWorkflow:
             try:
                 async with httpx.AsyncClient() as client:
                     await self.log_repo.log("webhook", f"Sending webhook payload to n8n for Job ID: {job.id}", "INFO")
-                    response = await client.post(settings.N8N_WEBHOOK_URL, json=payload, timeout=10.0)
+                    # Webhook can take up to 120s due to AI Agent parsing and prompt generation
+                    response = await client.post(settings.N8N_WEBHOOK_URL, json=payload, timeout=120.0)
                     if response.status_code == 200:
-                        await self.log_repo.log("webhook", f"Webhook delivered successfully for Job ID: {job.id}", "INFO")
+                        res_data = response.json()
+                        from app.core.database import async_session_factory
+                        from app.repositories.job_repository import JobRepository
+                        from app.repositories.log_repository import LogRepository
+                        
+                        async with async_session_factory() as session:
+                            j_repo = JobRepository(session)
+                            l_repo = LogRepository(session)
+                            db_job = await j_repo.get_by_id(job.id)
+                            if db_job:
+                                db_job.score = res_data.get("score")
+                                if res_data.get("apply") and (res_data.get("score") or 0) >= 90:
+                                    db_job.status = JobStatus.READY
+                                    msg = f"n8n analysis complete for {db_job.title}: score={db_job.score}, status=READY"
+                                else:
+                                    db_job.status = JobStatus.SKIPPED
+                                    msg = f"n8n analysis complete for {db_job.title}: score={db_job.score}, status=SKIPPED"
+                                await j_repo.update(db_job)
+                                await l_repo.log("analysis", msg, "INFO")
                     else:
                         await self.log_repo.log("webhook", f"Webhook failed with status {response.status_code} for Job ID: {job.id}", "WARNING")
             except Exception as e:
                 logger.error(f"Error executing webhook delivery: {str(e)}")
-                # Fail gracefully, keeps status as WAITING so user can retry or check logs
 
         # Fire and forget (or schedule in asyncio loop task)
         asyncio.create_task(call_webhook())
